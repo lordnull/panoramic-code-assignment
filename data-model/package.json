@@ -1,0 +1,22 @@
+{
+  "name": "data-model",
+  "version": "0.0.1",
+  "description": "Data model code excersize for panoramic software inc.",
+  "main": "index.js",
+  "scripts": {
+    "test": "spago test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/lordnull/panoramic-code-assignment.git"
+  },
+  "author": "Micah Warren",
+  "license": "UNLICENCED",
+  "bugs": {
+    "url": "https://github.com/lordnull/panoramic-code-assignment/issues"
+  },
+  "homepage": "https://github.com/lordnull/panoramic-code-assignment#readme",
+  "dependencies": {
+    "purescript": "^0.15.14"
+  }
+}
