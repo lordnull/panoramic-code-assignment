@@ -7,13 +7,11 @@ restrict comments down to how one should best use a type or function when
 it is non-obvious. -}
 module Main where
 
-import Prelude
+import Prelude (Unit)
 
-import Data.String
-import Data.String.NonEmpty
-import Data.Either
-import Data.Maybe
-import Data.List
+import Data.String.NonEmpty (NonEmptyString, toString)
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 
 {- A very basic validation error type, perhaps a bit too focused at the moment.
 Some of these don't make sense for certain validations, like TooShort or TooLong don't
@@ -47,19 +45,19 @@ data ValidationError custom_error
 
 {- A social security number represented only by the digits.
 This would be in it's own module. -}
-type SocialSecurityNumber = NonEmptyString
+newtype SocialSecurityNumber = SocialSecurityNumber NonEmptyString
 
 {- Takes a string and returns a SocialSecurityNumber if it is valid.
 A valid ssn string is 10 digits, '-', and whitespace. Specifics of
 whitespace and '-' don't matter, so long as after those are removed
 exactly 10 digits remain. -}
-ssn_from_string :: String -> Either (ValidationError ()) SocialSecurityNumber
+ssn_from_string :: String -> Either (ValidationError String) SocialSecurityNumber
 ssn_from_string _ = Left (Other "not implemented")
 
 {- Formats a social security number to XXX-XX-XXXX. This may not exist at all
 in the same module as ssn_from_string as it's a purely display function. -}
 format_ssn :: SocialSecurityNumber -> String
-format_ssn ssn = "000-11-2222"
+format_ssn _ = "000-11-2222"
 
 {- This would exist in a module / package focused on phone number validation.
 It would be updated periodically as country codes or formats might change. -}
@@ -99,7 +97,7 @@ phone number validation module would likely contain 'phone_number_to_string', I'
 going to assume it would allow for variations like optional parenthesis or dropping the
 country code. Thus, a bespoke function for US numbers. -}
 format_us_phone_number :: PhoneNumber -> String
-format_us_phone_number phone_number = "(111) 222-3333"
+format_us_phone_number _ = "(111) 222-3333"
 
 {- The remaining types and functions would all reside in a 'Person' module.
 At least initially. As the 'Person' module grows, it may need to be broken out
@@ -110,7 +108,8 @@ data objects: start with a single simple module and refactor out as it grows. -}
 {- Primary use case is to be an unvalidated data store for a form
 a user may fill out for their own info. While a user is filling out
 a form, nearly anything goes: data could be empty, the SSN could contain
-non-numbers, and so forth. The only truly strict part is married 
+non-numbers, and so forth. Even the married part allows for no entry to better
+enforce "must select one" and not make any assumptions.
 
 There is little in the way of helper functions for this type as the
 existing purescript record support should be enough.  One could even
@@ -123,7 +122,7 @@ type PersonFormBacker =
   { first_name :: String
   , last_name :: String
   , social_security_number :: String
-  , married :: Boolean
+  , married :: Maybe Boolean
   , us_phone_number :: String
   }
 
@@ -142,6 +141,7 @@ type Person =
   { database_id :: Maybe String
   , first_name :: NonEmptyString
   , last_name :: NonEmptyString
+  , married :: Boolean
   , social_security_number :: SocialSecurityNumber
   , us_phone_number :: PhoneNumber
   }
@@ -150,20 +150,22 @@ type Person =
 them to a form for the correct field. The validation module will likely have
 easy to_string functions for the common errors. -}
 type PersonValidationFailure =
-  { first_name :: List (ValidationError ())
-  , last_name :: List (ValidationError ())
-  , social_security_number :: (List ValidationError String)
-  , us_phone_number :: List (ValidationError String)
+  { first_name :: Array (ValidationError Unit)
+  , last_name :: Array (ValidationError Unit)
+  , social_security_number :: Array (ValidationError String)
+  , us_phone_number :: Array (ValidationError String)
+  , married :: Array (ValidationError Unit)
   }
 
 validate_person :: PersonFormBacker -> Either PersonValidationFailure Person
-validate_person _ = Left { first_name = [], last_name = [], social_security_number = [], us_phone_number = []}
+validate_person _ = Left { first_name : [], last_name : [], social_security_number : [], us_phone_number : [], married : []}
 
 {- This basically cannot fail. -}
 person_to_form_backing :: Person -> PersonFormBacker
-person_to_form_backing {first_name, last_name, social_security_number, us_phone_number} =
-  { first_name
-  , last_name
+person_to_form_backing {first_name, last_name, social_security_number, us_phone_number, married} =
+  { first_name : toString first_name
+  , last_name : toString last_name
   , social_security_number : format_ssn social_security_number
   , us_phone_number : format_us_phone_number us_phone_number
+  , married : Just married
   }
