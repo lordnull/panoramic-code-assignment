@@ -1,7 +1,6 @@
-web-app/node_modules
-web-app/.purs-repl
-data-model/node_modules
-data-model/.purs-repl
-data-model/.spago
-data-model/output
 .psc-ide-port
+.purs-repl
+.spago
+node_modules
+output
+.psci_modules
