@@ -16,6 +16,8 @@ to generate this file without the comments in this block.
   , "arrays"
   , "console"
   , "effect"
+  , "elmish"
+  , "elmish-html"
   , "httpurple"
   , "node-buffer"
   , "node-fs"

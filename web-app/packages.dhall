@@ -103,3 +103,36 @@ let upstream =
         sha256:fdd3cc0645db5080a7ff0dcbe00b42d649a6cf2de13ff14a93f2de2cc3f3422d
 
 in  upstream
+	with elmish =
+		{ dependencies =
+			[ "aff"
+			, "argonaut-core"
+			, "arrays"
+			, "bifunctors"
+			, "console"
+			, "debug"
+			, "effect"
+			, "either"
+			, "foldable-traversable"
+			, "foreign"
+			, "foreign-object"
+			, "functions"
+			, "integers"
+			, "js-date"
+			, "maybe"
+			, "nullable"
+			, "partial"
+			, "prelude"
+			, "refs"
+			, "safe-coerce"
+			, "type-equality"
+			, "typelevel-prelude"
+			, "undefined-is-not-a-problem"
+			, "unsafe-coerce"
+			, "web-dom"
+			, "web-html"
+			]
+		, repo = "https://github.com/collegevine/purescript-elmish"
+		, version = "v0.11.3"
+		}
+	with elmish-html.version = "v0.8.2"
