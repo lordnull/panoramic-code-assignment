@@ -7,11 +7,12 @@ import Node.Encoding (Encoding(..))
 import Node.FS.Aff (readTextFile)
 import Node.Path (concat)
 import Data.Array ((:))
+import Fetch
 
 data Route
   = Index
   | App
---  | BreedsList
+  | BreedsList
 --  | BreedImages String
   | AllOthers (Array String)
 derive instance Generic Route _
@@ -20,7 +21,7 @@ route :: RouteDuplex' Route
 route = mkRoute
   { "Index": noArgs
   , "App" : path "App.js" noArgs
-  --, "BreedsList" : "api" / "breeds"
+  , "BreedsList" : "api" / "breeds" / noArgs
   --, "BreedImages" : "api" / "breed" / string segment / "images"
   , "AllOthers" : catchAll
   }
@@ -43,10 +44,14 @@ load_app =
     read_file <- readTextFile UTF8 "output/App.js"
     ok' ( headers {"Content-Type" : "text/javascript"} ) read_file
     
-{-
-load_breed_list =
-  ok "breed list"
 
+load_breed_list =
+  do
+    let requestUrl = "https://dog.ceo/api/breeds/list/all"
+    {text} <- fetch requestUrl {}
+    responseText <- text
+    ok responseText
+{-
 load_breed_images =
   ok "images"-}
 
@@ -56,6 +61,6 @@ main =
   where
   router { route: Index } = load_index
   router { route : App } = load_app
-  --router { route : BreedsList } = load_breed_list
+  router { route : BreedsList } = load_breed_list
   --router { route : BreedImages breed } = load_breed_images breed
   router { route : AllOthers relpath } = load_file relpath

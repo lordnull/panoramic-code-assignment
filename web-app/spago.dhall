@@ -13,15 +13,23 @@ to generate this file without the comments in this block.
 { name = "my-project"
 , dependencies =
   [ "aff"
+  , "argonaut"
   , "arrays"
+  , "codec-argonaut"
   , "console"
   , "effect"
+  , "either"
   , "elmish"
   , "elmish-html"
+  , "fetch"
+  , "foldable-traversable"
   , "httpurple"
+  , "lists"
+  , "maybe"
   , "node-buffer"
   , "node-fs"
   , "node-path"
+  , "ordered-collections"
   , "prelude"
   ]
 , packages = ./packages.dhall
