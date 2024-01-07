@@ -291,20 +291,24 @@ total_pages item_count items_per_page =
 
 view_breed_list dispatch breed_cache =
     foldl (breed_list_entry_fold dispatch) [] breed_cache
-    # H.ul ""
+    # H.dl ""
 
 breed_list_entry_fold dispatch acc breed_info =
-    DA.sort breed_info.sub_breeds
-    # DA.intersperse ", "
-    # map (H.text)
-    # H.span "p-3"
-    # \e -> [ breed_detail_link dispatch breed_info.name, e]
-    # H.li ""
-    # DA.snoc acc
+    let
+        sub_breed = sub_breed_element breed_info
+        breed = breed_element dispatch breed_info
+    in
+        DA.snoc (DA.snoc acc breed) sub_breed
 
-breed_detail_link dispatch breed_name =
-    H.a_ "p-4" {onClick:dispatch <| ViewBreedDetails breed_name 1}
-        [ H.text breed_name ]
+sub_breed_element {sub_breeds} =
+    DA.intersperse ", " sub_breeds
+    # map H.text
+    # H.dd ""
+
+breed_element dispatch {name} =
+    H.text name
+    # H.a_ "" {onClick:dispatch <| ViewBreedDetails name 1}
+    # H.dt ""
 
 
 main :: Effect Unit
