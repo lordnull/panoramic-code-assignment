@@ -295,16 +295,15 @@ view_breed_list dispatch breed_cache =
 
 breed_list_entry_fold dispatch acc breed_info =
     DA.sort breed_info.sub_breeds
-    # map (breed_detail_link dispatch)
-    # map DA.singleton
-    # map (H.li "") 
-    # H.ul ""
+    # DA.intersperse ", "
+    # map (H.text)
+    # H.span "p-3"
     # \e -> [ breed_detail_link dispatch breed_info.name, e]
     # H.li ""
     # DA.snoc acc
 
 breed_detail_link dispatch breed_name =
-    H.a_ "" {onClick:dispatch <| ViewBreedDetails breed_name 1}
+    H.a_ "p-4" {onClick:dispatch <| ViewBreedDetails breed_name 1}
         [ H.text breed_name ]
 
 
