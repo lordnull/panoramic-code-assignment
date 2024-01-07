@@ -11,11 +11,12 @@ import Effect.Aff (makeAff, nonCanceler, Aff)
 import Effect.Console (logShow)
 import Data.Map as DM
 import Fetch (fetch)
-import Data.Either (hush, note, either)
+import Data.Either (Either(..), hush, note, either)
 import Data.Maybe (maybe, Maybe(..))
 import Data.FunctorWithIndex (mapWithIndex)
 import Data.List as DL
 import Data.Array as DA
+import Data.Int (toNumber, ceil)
 import Data.Argonaut as Argo
 import Data.Codec.Argonaut (JsonCodec, object, record, recordProp, array, string, decode)
 import Data.Codec.Argonaut.Common as CAC
@@ -50,7 +51,7 @@ data State
     | ViewingLoadFailure String
     | ViewingBreedList (Maybe String) BreedCache
     | FetchingBreedDetails BreedCache String Int
-    | ViewingBreedDetails BreedCache String Int
+    | ViewingBreedDetails BreedCache BreedInfo Int
 derive instance genericState :: Generic State _
 instance showState :: Show State where
     show = genericShow
@@ -82,12 +83,59 @@ update state_with_cache (BreedDetailsFailed breed_name why) =
     # Just
     # \err_msg -> ViewingBreedList err_msg (extract_cache state_with_cache)
     # \new_state -> transition new_state []
+update (FetchingBreedDetails cache breed_name page_num) (BreedDetailsLoaded fetch_breed raw_list) | breed_name == fetch_breed =
+    case parse_breed_details raw_list of
+        Left _ ->
+            transition (ViewingBreedList (Just (fetch_breed <> " failed to parse details.")) cache ) []
+        Right image_urls ->
+            let
+                {breed_info, new_cache} = update_cache fetch_breed image_urls cache
+            in
+                transition (ViewingBreedDetails new_cache breed_info page_num) []
+update state_with_cache (BreedDetailsLoaded fetch_breed raw_list) =
+    case parse_breed_details raw_list of
+        Left _ ->
+            transition state_with_cache []
+        Right image_urls ->
+            let
+                old_cache = extract_cache state_with_cache
+                {new_cache} = update_cache fetch_breed image_urls old_cache
+                new_state = insert_cache state_with_cache new_cache
+            in
+                transition new_state []
 update state_with_cache (ViewBreedDetails breed_name page_num) =
     update_load_breed_details breed_name page_num $ extract_cache state_with_cache
+update state_with_cache ViewBreedList =
+    transition (ViewingBreedList Nothing (extract_cache state_with_cache)) []
 update state msg = do
     do
         forkVoid $ aff_log_show {message: "Handling this state + message combo is not yet implemented", ignored_msg : msg, ignored_state : state}
         pure state
+
+update_cache :: String -> Array String -> DM.Map String BreedInfo -> {breed_info :: BreedInfo, new_cache :: DM.Map String BreedInfo}
+update_cache breed_name image_urls old_cache =
+    {- I'd like to use Data.Map.insertWith, but I need to know the actual value I'm inserting, so I kinda need to
+       write it myself. -}
+    let
+        default_info = {name:breed_name, sub_breeds:[], cached_image_count: DA.length image_urls, cached_images:image_urls}
+        maybe_replaced = do
+            found <- DM.lookup breed_name old_cache
+            merge_fun <- pure (\existing {cached_image_count, cached_images} ->
+                existing {cached_image_count = cached_image_count, cached_images = cached_images})
+            pure $ merge_fun found default_info
+    in
+        maybe default_info identity maybe_replaced
+        # \breed_info ->
+            {breed_info, new_cache : DM.insert breed_name breed_info old_cache}
+
+
+parse_breed_details :: String -> Either String (Array String)
+parse_breed_details text =
+    do
+      json <- note "json parse failed" $ hush $ Argo.parseJson text
+      {message} <- note "json transform failed" $ hush $ decode ( CAR.object "message wrapper" {message : array string} ) json
+      pure message
+
 
 extract_cache :: State -> BreedCache
 extract_cache FetchingInitialList =
@@ -101,6 +149,18 @@ extract_cache (FetchingBreedDetails cache _ _) =
     cache
 extract_cache (ViewingBreedDetails cache _ _) =
     cache
+
+insert_cache ::State -> BreedCache -> State
+insert_cache FetchingInitialList _ =
+    FetchingInitialList
+insert_cache state@(ViewingLoadFailure _) _ =
+    state
+insert_cache (ViewingBreedList s _) cache =
+    ViewingBreedList s cache
+insert_cache (FetchingBreedDetails _ a b) cache =
+    FetchingBreedDetails cache a b
+insert_cache (ViewingBreedDetails _ a b) cache =
+    ViewingBreedDetails cache a b
 
 
 aff_log_show :: forall a. Show a => a -> Aff Unit
@@ -135,7 +195,7 @@ update_load_breed_details_cont page cache breed_info =
                             BreedDetailsFailed breed_info.name as_text
                 pure $ FetchingBreedDetails cache breed_info.name page
         image_url_list ->
-            transition ( ViewingBreedDetails cache breed_info.name page ) []
+            transition ( ViewingBreedDetails cache breed_info page ) []
 
 
 
@@ -181,10 +241,53 @@ view (ViewingBreedList (Just error) breed_cache) dispatch =
             [ H.text error ]
         , view_breed_list dispatch breed_cache
         ]
-view _ _ =
+view (ViewingBreedDetails cache breed_info page_num) dispatch =
     H.div "p-4"
-        [ H.text "cache loaded."
+        [ H.a_ "" {onClick : dispatch <| ViewBreedList} [ H.text "< back to list" ]
+        , H.h1 "" [ H.text breed_info.name ]
+        , H.h2 "" [ H.text "sub breeds"]
+        , H.span "" $ map H.text $ DA.intersperse ", " breed_info.sub_breeds
+        , view_page_navigator breed_info page_num dispatch
+        , H.span "" $ view_images breed_info page_num
+        , view_page_navigator breed_info page_num dispatch
         ]
+view state _ =
+    H.div "p-4"
+        [ H.text "unfinished view for given state:"
+        , H.text $ show state
+        ]
+
+page_size = 20
+
+view_images {cached_images} page_num =
+    let
+        slice_start = (page_num - 1) * page_size
+        slice_end = slice_start + page_size
+    in
+        DA.slice slice_start slice_end cached_images
+        # map {src : _}
+        # map (H.img_ "")
+
+view_page_navigator :: BreedInfo -> Int -> (Dispatch Message) -> ReactElement
+view_page_navigator breed_info page_num dispatch =
+    H.div "p-4"
+        [ H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name 1} [ H.text "<<"]
+        , H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name (page_num - 1)} [ H.text "<"]
+        , H.span ""
+            [ H.text $ show page_num
+            , H.text " / "
+            , H.text $ show $ total_pages breed_info.cached_image_count page_size
+            ]
+        , H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name (page_num + 1)} [H.text ">"]
+        , H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name $ total_pages breed_info.cached_image_count page_size} [ H.text ">>"]
+        ]
+
+total_pages :: Int -> Int -> Int
+total_pages item_count items_per_page =
+    ceil $ (toNumber item_count) / (toNumber items_per_page)
+
+
+
 
 view_breed_list dispatch breed_cache =
     foldl (breed_list_entry_fold dispatch) [] breed_cache
@@ -201,7 +304,7 @@ breed_list_entry_fold dispatch acc breed_info =
     # DA.snoc acc
 
 breed_detail_link dispatch breed_name =
-    H.a_ "" {onClick:dispatch <| ViewBreedDetails breed_name 0}
+    H.a_ "" {onClick:dispatch <| ViewBreedDetails breed_name 1}
         [ H.text breed_name ]
 
 

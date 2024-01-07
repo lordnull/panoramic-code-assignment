@@ -2,7 +2,7 @@ module Server where
 
 import Prelude hiding ((/))
 
-import HTTPurple (class Generic, RouteDuplex', ServerM, ResponseM, mkRoute, (/), path, noArgs, catchAll, headers, ok, ok', serve)
+import HTTPurple (class Generic, RouteDuplex', ServerM, ResponseM, mkRoute, (/), string, segment, path, noArgs, catchAll, headers, ok, ok', serve)
 import Node.Encoding (Encoding(..))
 import Node.FS.Aff (readTextFile)
 import Node.Path (concat)
@@ -13,7 +13,7 @@ data Route
   = Index
   | App
   | BreedsList
---  | BreedImages String
+  | BreedImages String
   | AllOthers (Array String)
 derive instance Generic Route _
 
@@ -22,7 +22,7 @@ route = mkRoute
   { "Index": noArgs
   , "App" : path "App.js" noArgs
   , "BreedsList" : "api" / "breeds" / noArgs
-  --, "BreedImages" : "api" / "breed" / string segment / "images"
+  , "BreedImages" : "api" / "breed" / string segment / "images"
   , "AllOthers" : catchAll
   }
 
@@ -51,9 +51,13 @@ load_breed_list =
     {text} <- fetch requestUrl {}
     responseText <- text
     ok responseText
-{-
-load_breed_images =
-  ok "images"-}
+
+load_breed_images breed_name =
+  do
+    let requestUrl = "https://dog.ceo/api/breed/" <> breed_name <> "/images"
+    {text} <- fetch requestUrl {}
+    responseText <- text
+    ok responseText
 
 main :: ServerM
 main =
@@ -62,5 +66,5 @@ main =
   router { route: Index } = load_index
   router { route : App } = load_app
   router { route : BreedsList } = load_breed_list
-  --router { route : BreedImages breed } = load_breed_images breed
+  router { route : BreedImages breed } = load_breed_images breed
   router { route : AllOthers relpath } = load_file relpath
