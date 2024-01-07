@@ -1,6 +1,9 @@
 {- Normally this would be split into multiple modules as there are cross-cutting
 concerns. However, for ease of review, I've placed it all in one.
 
+While the assignment stated I did not need to implement the functions, I
+wanted to make sure the types were actually usable. Thus, I've stubbed them out.
+In short, this module should compile (though its use is liimited).
 Also note there are many more comments here than I would usually put in code,
 attempting to explain the exact reason for each and every choice. I tend to
 restrict comments down to how one should best use a type or function when
