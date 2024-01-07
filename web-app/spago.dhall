@@ -25,7 +25,6 @@ to generate this file without the comments in this block.
   , "foldable-traversable"
   , "httpurple"
   , "integers"
-  , "lists"
   , "maybe"
   , "node-buffer"
   , "node-fs"

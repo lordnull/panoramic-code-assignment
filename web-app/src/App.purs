@@ -10,20 +10,18 @@ import Effect.Aff (makeAff, nonCanceler, Aff)
 import Effect.Console (logShow)
 import Data.Map as DM
 import Fetch (fetch)
-import Data.Either (Either(..), hush, note, either)
+import Data.Either (Either(..), hush, note)
 import Data.Maybe (maybe, Maybe(..))
 import Data.FunctorWithIndex (mapWithIndex)
-import Data.List as DL
 import Data.Array as DA
 import Data.Int (toNumber, ceil)
 import Data.Argonaut as Argo
-import Data.Codec.Argonaut (JsonCodec, object, record, recordProp, array, string, decode)
+import Data.Codec.Argonaut (JsonCodec, array, string, decode)
 import Data.Codec.Argonaut.Common as CAC
 import Data.Codec.Argonaut.Record as CAR
-import Type.Proxy (Proxy(..))
 import Data.Generic.Rep (class Generic)
 import Data.Show.Generic (genericShow)
-import Data.Traversable
+import Data.Traversable (foldl)
 
 type BreedInfo =
     { name :: String
@@ -67,10 +65,11 @@ type State =
     , page :: Page
     }
 
+fetch_breeds :: Aff Message
 fetch_breeds =
     do
         let requestUrl = "http://localhost:8080/api/breeds"
-        {status, text} <- fetch requestUrl {}
+        {text} <- fetch requestUrl {}
         as_text <- text
         pure $ BreedListLoaded as_text
 
@@ -124,7 +123,7 @@ update state (ViewBreedDetails breed_name page_num) =
                     Nothing ->
                         pure $ BreedDetailsFailed breed_name "breed unknown"
                     Just breed_info ->
-                        maybe_fetch_detail breed_info working_state
+                        maybe_fetch_detail breed_info
             pure working_state
 
 update state ViewBreedList =
@@ -149,8 +148,8 @@ maybe_not_busy _ state =
 dummy_breed :: String -> BreedInfo
 dummy_breed = {name : _, cached_image_count : 0, cached_images : [], sub_breeds : []}
 
---maybe_fetch_detail :: BreedInfo -> State -> Transition Message Unit 
-maybe_fetch_detail breed_info@{name, cached_images : []} state =
+maybe_fetch_detail :: BreedInfo -> Aff Message
+maybe_fetch_detail {name, cached_images : []} =
     do
         {status, text} <- fetch ("http://localhost:8080/api/breed/" <> name <> "/images") {}
         as_text <- text
@@ -159,7 +158,7 @@ maybe_fetch_detail breed_info@{name, cached_images : []} state =
                 BreedDetailsLoaded name as_text
             _not_200 ->
                 BreedDetailsFailed name as_text
-maybe_fetch_detail breed_info state =
+maybe_fetch_detail breed_info =
     do
         pure $ BreedDetailsFound breed_info
 
@@ -203,14 +202,6 @@ update_initial_list_fetched string_data =
         {message} <- hush $ decode breed_list_codec json
         pure $ mapWithIndex cache_map message
 
-finalize_cache_to_state :: DM.Map String (Array String) -> State
-finalize_cache_to_state in_map =
-    {cache : fixup_cache_map in_map, page : BreedList, busy_work : Nothing, last_error : Nothing}
-
-fixup_cache_map :: DM.Map String (Array String) -> BreedCache
-fixup_cache_map in_map =
-    mapWithIndex cache_map in_map
-
 cache_map :: String -> Array String -> BreedInfo
 cache_map key value =
     { name : key, sub_breeds : value, cached_images : ([] :: Array String), cached_image_count : 0}
@@ -223,7 +214,7 @@ view :: State -> Dispatch Message -> ReactElement
 view {busy_work : Just PrimaryList} _ =
     H.div "p-4"
         [ H.text "Loading local cache..." ]
-view {busy_work : Just (Detail breed_name)} dispatch =
+view {busy_work : Just (Detail breed_name)} _dispatch =
     H.div "p-4"
         [ H.text $ "Loading data for breed " <> breed_name ]
 view {page : BreedList, last_error : Nothing, cache} dispatch =
@@ -234,7 +225,7 @@ view {page : BreedList, last_error : Just error, cache} dispatch =
             [ H.text error ]
         , view_breed_list dispatch cache
         ]
-view {page : BreedDetail breed_info page_num, cache} dispatch =
+view {page : BreedDetail breed_info page_num} dispatch =
     H.div "p-4"
         [ H.a_ "" {onClick : dispatch <| ViewBreedList} [ H.text "< back to list" ]
         , H.h1 "" [ H.text breed_info.name ]
@@ -245,9 +236,10 @@ view {page : BreedDetail breed_info page_num, cache} dispatch =
         , H.span "" $ view_images breed_info page_num
         , view_page_navigator breed_info page_num dispatch
         ]
-
+page_size :: Int
 page_size = 20
 
+view_images :: BreedInfo -> Int -> Array ReactElement
 view_images {cached_images} page_num =
     let
         slice_start = (page_num - 1) * page_size
@@ -279,13 +271,12 @@ total_pages :: Int -> Int -> Int
 total_pages item_count items_per_page =
     ceil $ (toNumber item_count) / (toNumber items_per_page)
 
-
-
-
+view_breed_list :: (Dispatch Message) -> BreedCache -> ReactElement
 view_breed_list dispatch breed_cache =
     foldl (breed_list_entry_fold dispatch) [] breed_cache
     # H.dl ""
 
+breed_list_entry_fold :: (Dispatch Message) -> Array ReactElement -> BreedInfo -> Array ReactElement
 breed_list_entry_fold dispatch acc breed_info =
     let
         sub_breed = sub_breed_element breed_info
@@ -293,11 +284,13 @@ breed_list_entry_fold dispatch acc breed_info =
     in
         DA.snoc (DA.snoc acc breed) sub_breed
 
+sub_breed_element :: BreedInfo -> ReactElement
 sub_breed_element {sub_breeds} =
     DA.intersperse ", " sub_breeds
     # map H.text
     # H.dd ""
 
+breed_element :: (Dispatch Message) -> BreedInfo -> ReactElement
 breed_element dispatch {name} =
     H.text name
     # H.a_ "" {onClick:dispatch <| ViewBreedDetails name 1}
