@@ -270,17 +270,21 @@ view_images {cached_images} page_num =
 
 view_page_navigator :: BreedInfo -> Int -> (Dispatch Message) -> ReactElement
 view_page_navigator breed_info page_num dispatch =
-    H.div "p-4"
-        [ H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name 1} [ H.text "<<"]
-        , H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name (page_num - 1)} [ H.text "<"]
-        , H.span ""
-            [ H.text $ show page_num
-            , H.text " / "
-            , H.text $ show $ total_pages breed_info.cached_image_count page_size
+    let
+        page_count = total_pages breed_info.cached_image_count page_size
+    in
+        H.div "p-4"
+            [ H.button_ "" {disabled:page_num <= 1, onClick:dispatch <| ViewBreedDetails breed_info.name 1} [ H.text "<<"]
+            , H.button_ "" {disabled:page_num <= 1, onClick:dispatch <| ViewBreedDetails breed_info.name (page_num - 1)} [ H.text "<"]
+            , H.span ""
+                [ H.text $ show page_num
+                , H.text " / "
+                , H.text $ show $ total_pages breed_info.cached_image_count page_size
+                ]
+            , H.button_ "" {disabled: page_num >= page_count, onClick:dispatch <| ViewBreedDetails breed_info.name (page_num + 1)} [H.text ">"]
+            , H.button_ "" {disabled: page_num >= page_count, onClick:dispatch <| ViewBreedDetails breed_info.name $ page_count} [ H.text ">>"]
             ]
-        , H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name (page_num + 1)} [H.text ">"]
-        , H.button_ "" {onClick:dispatch <| ViewBreedDetails breed_info.name $ total_pages breed_info.cached_image_count page_size} [ H.text ">>"]
-        ]
+
 
 total_pages :: Int -> Int -> Int
 total_pages item_count items_per_page =
