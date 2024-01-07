@@ -3,7 +3,6 @@ module App (main) where
 import Prelude
 
 import Elmish (transition, Transition, Dispatch, ReactElement, fork, forkVoid, (<|))
---import Elmish.HTML.Events as E
 import Elmish.HTML.Styled as H
 import Elmish.Boot (defaultMain)
 import Effect (Effect)
@@ -42,19 +41,31 @@ data Message
     | ViewBreedDetails String Int
     | BreedDetailsLoaded String String
     | BreedDetailsFailed String String
+    | BreedDetailsFound BreedInfo
 derive instance genericMessage :: Generic Message _
 instance showMessage :: Show Message where
     show = genericShow
 
-data State
-    = FetchingInitialList
-    | ViewingLoadFailure String
-    | ViewingBreedList (Maybe String) BreedCache
-    | FetchingBreedDetails BreedCache String Int
-    | ViewingBreedDetails BreedCache BreedInfo Int
-derive instance genericState :: Generic State _
-instance showState :: Show State where
+data Page
+    = BreedList
+    | BreedDetail BreedInfo Int
+derive instance genericPage :: Generic Page _
+instance showPage :: Show Page where
     show = genericShow
+
+data Fetching
+    = PrimaryList
+    | Detail String
+instance Show Fetching where
+    show PrimaryList = "Getting Full breed list..."
+    show (Detail breed) = "Getting image list for " <> breed
+
+type State =
+    { cache :: BreedCache
+    , busy_work :: Maybe Fetching
+    , last_error :: Maybe String
+    , page :: Page
+    }
 
 fetch_breeds =
     do
@@ -65,50 +76,93 @@ fetch_breeds =
 
 init :: Transition Message State
 init =
-    transition FetchingInitialList [fetch_breeds]
+    transition {cache : DM.empty :: DM.Map String BreedInfo, busy_work : Just PrimaryList, page : BreedList, last_error : Nothing } [fetch_breeds]
 
 update :: State -> Message -> Transition Message State
-update state@(ViewingLoadFailure _) _ =
-    transition state []
-update _ (BreedListLoaded string_data) =
+update state (BreedListLoaded string_data) =
     do
-        forkVoid $ aff_log_show string_data
-        pure $ update_initial_list_fetched string_data
-update _ (BreedListLoadFailed why) =
-    transition (ViewingLoadFailure why) []
-update FetchingInitialList ignored_msg =
-    do
-        forkVoid $ aff_log_show {message: "ignoring message while waiting for initial load", ignored_msg}
-        pure FetchingInitialList
-update state_with_cache (BreedDetailsFailed breed_name why) =
+        _ <- forkVoid $ aff_log_show string_data
+        pure $ maybe (state { last_error = Just "failed to parse breed list"}) identity
+            do
+                fixed_cache <- update_initial_list_fetched string_data
+                pure $ state { cache = fixed_cache, busy_work = Nothing}
+update state (BreedListLoadFailed why) =
+    transition (state { last_error = Just why}) []
+update state (BreedDetailsFailed breed_name why) =
     "Could not get details for breed \"" <> breed_name <> "\" due to " <> why
-    # Just
-    # \err_msg -> ViewingBreedList err_msg (extract_cache state_with_cache)
+    # \e -> state { last_error = Just e}
+    # maybe_not_busy breed_name
     # \new_state -> transition new_state []
-update (FetchingBreedDetails cache breed_name page_num) (BreedDetailsLoaded fetch_breed raw_list) | breed_name == fetch_breed =
+update state (BreedDetailsFound breed_info) =
+    transition (maybe_update_page_info breed_info state) []
+update state (BreedDetailsLoaded fetch_breed raw_list) =
     case parse_breed_details raw_list of
         Left _ ->
-            transition (ViewingBreedList (Just (fetch_breed <> " failed to parse details.")) cache ) []
+            fetch_breed <> " failed to parse details."
+            # \e -> state { last_error = Just e}
+            # maybe_not_busy fetch_breed
+            # \new_state -> transition new_state []
         Right image_urls ->
             let
-                {breed_info, new_cache} = update_cache fetch_breed image_urls cache
+                {breed_info, new_cache} = update_cache fetch_breed image_urls state.cache
             in
-                transition (ViewingBreedDetails new_cache breed_info page_num) []
-update state_with_cache (BreedDetailsLoaded fetch_breed raw_list) =
-    case parse_breed_details raw_list of
-        Left _ ->
-            transition state_with_cache []
-        Right image_urls ->
-            let
-                old_cache = extract_cache state_with_cache
-                {new_cache} = update_cache fetch_breed image_urls old_cache
-                new_state = insert_cache state_with_cache new_cache
-            in
-                transition new_state []
-update state_with_cache (ViewBreedDetails breed_name page_num) =
-    update_load_breed_details breed_name page_num $ extract_cache state_with_cache
-update state_with_cache ViewBreedList =
-    transition (ViewingBreedList Nothing (extract_cache state_with_cache)) []
+                state { cache = new_cache}
+                # maybe_update_page_info breed_info
+                # maybe_not_busy fetch_breed
+                # \new_state -> transition new_state []
+update state@{page : BreedDetail breed_info@{name : breed_name} _} (ViewBreedDetails breed_requested page_num) | breed_name == breed_requested =
+    transition ( state { page = BreedDetail breed_info page_num} ) []
+update state (ViewBreedDetails breed_name page_num) =
+    let
+        working_state =
+            navigate_breed_detail_page breed_name page_num
+            $ state { busy_work = Just (Detail breed_name) }
+    in 
+        do
+            fork do
+                case DM.lookup breed_name state.cache of
+                    Nothing ->
+                        pure $ BreedDetailsFailed breed_name "breed unknown"
+                    Just breed_info ->
+                        maybe_fetch_detail breed_info working_state
+            pure working_state
+
+update state ViewBreedList =
+    transition (state { page = BreedList}) []
+
+navigate_breed_detail_page :: String -> Int -> State -> State
+navigate_breed_detail_page breed_name page_num state =
+    state { last_error = Nothing, page = BreedDetail (dummy_breed breed_name) page_num}
+
+maybe_update_page_info :: BreedInfo -> State -> State
+maybe_update_page_info breed_info@{name : new_breed_name} state@{page : BreedDetail { name : old_breed_name} page_num} | new_breed_name == old_breed_name =
+    state { page = BreedDetail breed_info page_num }
+maybe_update_page_info _ state =
+    state
+
+maybe_not_busy :: String -> State -> State
+maybe_not_busy breed_name state@{ busy_work : Just (Detail busy_breed_name)} | breed_name == busy_breed_name =
+    state { busy_work = Nothing }
+maybe_not_busy _ state =
+    state
+
+dummy_breed :: String -> BreedInfo
+dummy_breed = {name : _, cached_image_count : 0, cached_images : [], sub_breeds : []}
+
+--maybe_fetch_detail :: BreedInfo -> State -> Transition Message Unit 
+maybe_fetch_detail breed_info@{name, cached_images : []} state =
+    do
+        {status, text} <- fetch ("http://localhost:8080/api/breed/" <> name <> "/images") {}
+        as_text <- text
+        pure $ case status of
+            200 ->
+                BreedDetailsLoaded name as_text
+            _not_200 ->
+                BreedDetailsFailed name as_text
+maybe_fetch_detail breed_info state =
+    do
+        pure $ BreedDetailsFound breed_info
+
 
 update_cache :: String -> Array String -> DM.Map String BreedInfo -> {breed_info :: BreedInfo, new_cache :: DM.Map String BreedInfo}
 update_cache breed_name image_urls old_cache =
@@ -134,33 +188,6 @@ parse_breed_details text =
       {message} <- note "json transform failed" $ hush $ decode ( CAR.object "message wrapper" {message : array string} ) json
       pure message
 
-
-extract_cache :: State -> BreedCache
-extract_cache FetchingInitialList =
-    -- This shouldn't happen, but to make the function complete
-    DM.empty
-extract_cache (ViewingLoadFailure _) =
-    DM.empty
-extract_cache (ViewingBreedList _ cache) =
-    cache
-extract_cache (FetchingBreedDetails cache _ _) =
-    cache
-extract_cache (ViewingBreedDetails cache _ _) =
-    cache
-
-insert_cache ::State -> BreedCache -> State
-insert_cache FetchingInitialList _ =
-    FetchingInitialList
-insert_cache state@(ViewingLoadFailure _) _ =
-    state
-insert_cache (ViewingBreedList s _) cache =
-    ViewingBreedList s cache
-insert_cache (FetchingBreedDetails _ a b) cache =
-    FetchingBreedDetails cache a b
-insert_cache (ViewingBreedDetails _ a b) cache =
-    ViewingBreedDetails cache a b
-
-
 aff_log_show :: forall a. Show a => a -> Aff Unit
 aff_log_show thing =
     let
@@ -169,48 +196,16 @@ aff_log_show thing =
     in
         makeAff aff_function
 
-update_load_breed_details :: String -> Int -> BreedCache -> Transition Message State
-update_load_breed_details name page cache =
-    DM.lookup name cache
-    # note name
-    # either (update_missing_entry cache) (update_load_breed_details_cont page cache)
-
-update_missing_entry cache name =
-    transition (ViewingBreedList (Just ("Could not find breed \"" <> name <> "\".")) cache) []
-
-
-update_load_breed_details_cont page cache breed_info =
-    case breed_info.cached_images of
-        [] ->
-            do
-                fork do
-                    {status, text} <- fetch ("http://localhost:8080/api/breed/" <> breed_info.name <> "/images") {}
-                    as_text <- text
-                    pure $ case status of
-                        200 ->
-                            BreedDetailsLoaded breed_info.name as_text
-                        _not_200 ->
-                            BreedDetailsFailed breed_info.name as_text
-                pure $ FetchingBreedDetails cache breed_info.name page
-        image_url_list ->
-            transition ( ViewingBreedDetails cache breed_info page ) []
-
-
-
-
-
-
-
-update_initial_list_fetched :: String -> State
+update_initial_list_fetched :: String -> Maybe BreedCache
 update_initial_list_fetched string_data =
-    maybe (ViewingLoadFailure "unknown load failure") finalize_cache_to_state do
+    do
         json <- hush $ Argo.parseJson string_data
         {message} <- hush $ decode breed_list_codec json
-        pure message
+        pure $ mapWithIndex cache_map message
 
 finalize_cache_to_state :: DM.Map String (Array String) -> State
 finalize_cache_to_state in_map =
-    ViewingBreedList Nothing $ fixup_cache_map in_map
+    {cache : fixup_cache_map in_map, page : BreedList, busy_work : Nothing, last_error : Nothing}
 
 fixup_cache_map :: DM.Map String (Array String) -> BreedCache
 fixup_cache_map in_map =
@@ -225,21 +220,21 @@ breed_list_codec =
     CAR.object "message wrapper" { message : CAC.strMap (array string) }
 
 view :: State -> Dispatch Message -> ReactElement
-view FetchingInitialList _ =
+view {busy_work : Just PrimaryList} _ =
     H.div "p-4"
         [ H.text "Loading local cache..." ]
-view (ViewingLoadFailure failureMessage) _ =
+view {busy_work : Just (Detail breed_name)} dispatch =
     H.div "p-4"
-        [ H.text $ "Local cache failure: " <> failureMessage ]
-view (ViewingBreedList Nothing breed_cache) dispatch =
-    view_breed_list dispatch breed_cache
-view (ViewingBreedList (Just error) breed_cache) dispatch =
+        [ H.text $ "Loading data for breed " <> breed_name ]
+view {page : BreedList, last_error : Nothing, cache} dispatch =
+    view_breed_list dispatch cache
+view {page : BreedList, last_error : Just error, cache} dispatch =
     H.div ""
         [ H.div "error"
             [ H.text error ]
-        , view_breed_list dispatch breed_cache
+        , view_breed_list dispatch cache
         ]
-view (ViewingBreedDetails cache breed_info page_num) dispatch =
+view {page : BreedDetail breed_info page_num, cache} dispatch =
     H.div "p-4"
         [ H.a_ "" {onClick : dispatch <| ViewBreedList} [ H.text "< back to list" ]
         , H.h1 "" [ H.text breed_info.name ]
@@ -250,9 +245,6 @@ view (ViewingBreedDetails cache breed_info page_num) dispatch =
         , H.span "" $ view_images breed_info page_num
         , view_page_navigator breed_info page_num dispatch
         ]
-view (FetchingBreedDetails _cache breed_name _page) dispatch =
-    H.div "p-4"
-        [ H.text $ "Loading data for breed " <> breed_name ]
 
 page_size = 20
 
