@@ -5,7 +5,7 @@ been fun working in purescript.
 
 The data model assignment is in the 'data-model' and the dog api is in 'web-app'.
 
-The web-app has two components, the server and app. Both will be built when using make.
+The web-app has two components, the server and app. Run 'npm install', and 'make'.
 
 Running the server is as simple as 'node output/Server.js'. Browsing to 'http://localhost:8080'
 should bring the web-app up.
