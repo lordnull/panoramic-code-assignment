@@ -250,11 +250,9 @@ view (ViewingBreedDetails cache breed_info page_num) dispatch =
         , H.span "" $ view_images breed_info page_num
         , view_page_navigator breed_info page_num dispatch
         ]
-view state _ =
+view (FetchingBreedDetails _cache breed_name _page) dispatch =
     H.div "p-4"
-        [ H.text "unfinished view for given state:"
-        , H.text $ show state
-        ]
+        [ H.text $ "Loading data for breed " <> breed_name ]
 
 page_size = 20
 
