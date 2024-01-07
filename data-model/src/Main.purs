@@ -44,13 +44,15 @@ data ValidationError custom_error
   | Other custom_error
 
 {- A social security number represented only by the digits.
-This would be in it's own module. -}
+This would be in it's own module with the constructor hidden -}
 newtype SocialSecurityNumber = SocialSecurityNumber NonEmptyString
 
 {- Takes a string and returns a SocialSecurityNumber if it is valid.
 A valid ssn string is 10 digits, '-', and whitespace. Specifics of
 whitespace and '-' don't matter, so long as after those are removed
-exactly 10 digits remain. -}
+exactly 10 digits remain. This way, we can be reasonably certain that
+if we're dealing the a SocialSecurityNumber type, it's at least
+structurally valid. -}
 ssn_from_string :: String -> Either (ValidationError String) SocialSecurityNumber
 ssn_from_string _ = Left (Other "not implemented")
 
@@ -60,8 +62,9 @@ format_ssn :: SocialSecurityNumber -> String
 format_ssn _ = "000-11-2222"
 
 {- This would exist in a module / package focused on phone number validation.
-It would be updated periodically as country codes or formats might change. -}
-type PhoneNumber =
+It would be updated periodically as country codes or formats might change. It's
+following the same strategy as the social security number.-}
+newtype PhoneNumber = PhoneNumber
   { country_code :: Int
   , digits :: String
   , extension :: String
