@@ -68,11 +68,13 @@ init =
     transition FetchingInitialList [fetch_breeds]
 
 update :: State -> Message -> Transition Message State
-update FetchingInitialList (BreedListLoaded string_data) =
+update state@(ViewingLoadFailure _) _ =
+    transition state []
+update _ (BreedListLoaded string_data) =
     do
         forkVoid $ aff_log_show string_data
         pure $ update_initial_list_fetched string_data
-update FetchingInitialList (BreedListLoadFailed why) =
+update _ (BreedListLoadFailed why) =
     transition (ViewingLoadFailure why) []
 update FetchingInitialList ignored_msg =
     do
@@ -107,10 +109,6 @@ update state_with_cache (ViewBreedDetails breed_name page_num) =
     update_load_breed_details breed_name page_num $ extract_cache state_with_cache
 update state_with_cache ViewBreedList =
     transition (ViewingBreedList Nothing (extract_cache state_with_cache)) []
-update state msg = do
-    do
-        forkVoid $ aff_log_show {message: "Handling this state + message combo is not yet implemented", ignored_msg : msg, ignored_state : state}
-        pure state
 
 update_cache :: String -> Array String -> DM.Map String BreedInfo -> {breed_info :: BreedInfo, new_cache :: DM.Map String BreedInfo}
 update_cache breed_name image_urls old_cache =
@@ -245,6 +243,7 @@ view (ViewingBreedDetails cache breed_info page_num) dispatch =
     H.div "p-4"
         [ H.a_ "" {onClick : dispatch <| ViewBreedList} [ H.text "< back to list" ]
         , H.h1 "" [ H.text breed_info.name ]
+        , H.span "" [ H.text $ show breed_info.cached_image_count, H.text " total images" ]
         , H.h2 "" [ H.text "sub breeds"]
         , H.span "" $ map H.text $ DA.intersperse ", " breed_info.sub_breeds
         , view_page_navigator breed_info page_num dispatch
